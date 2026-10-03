@@ -106,6 +106,55 @@ class Digest:
     def by_source(self, source: str) -> list[Lead]:
         return [lead for lead in self.leads if lead.signal.source == source]
 
+    def render_markdown(self, limit: int = 6) -> str:
+        """A standalone Markdown report, ready to save as a daily digest file."""
+        title_line = "💡 *IDE BISNIS — SINYAL PASAR*"
+
+        if not self.leads:
+            md = [
+                f"# {title_line}",
+                f"🕐 {self.generated_at.strftime('%d %b %Y %H:%M')} WIB",
+                "",
+                "📭 Tidak ada sinyal baru yang lolos filter.",
+            ]
+            if self.sources_failed:
+                md.append("")
+                md.append(
+                    f"⚠️ **Sumber gagal:** {', '.join(self.sources_failed)}"
+                )
+            return "\n".join(md)
+
+        src_summary = " · ".join(
+            f"`{k}={v}`" for k, v in sorted(self.counts.items()) if v
+        )
+        md = [
+            f"# {title_line}",
+            f"🕐 {self.generated_at.strftime('%d %b %Y %H:%M')} WIB",
+            "",
+            f"**{len(self.leads)} leads** dari **{len(self.sources_ok)} sumber**.",
+            "",
+        ]
+        for i, lead in enumerate(self.top(limit), 1):
+            md.append(f"## {i}. {lead.title[:90]}")
+            md.append("")
+            md.append(f"- **Skor:** {lead.score:.0f}/100")
+            md.append(f"- **Metrik:** {lead.signal.metric_label}")
+            if lead.angle:
+                md.append(f"- **Sudut:** {lead.angle}")
+            if lead.tags:
+                md.append(f"- **Tag:** {', '.join(lead.tags[:5])}")
+            md.append(f"- **Sumber:** `{lead.signal.source}`")
+            md.append(f"- **Link:** {lead.signal.url}")
+            md.append("")
+        md.append("---")
+        md.append("")
+        md.append(f"📈 {src_summary}")
+        if self.sources_failed:
+            md.append(f"⚠️ **Gagal:** {', '.join(self.sources_failed)}")
+        md.append("")
+        md.append("_Sinyal mentah dari data publik. Bukan jaminan pasar._")
+        return "\n".join(md)
+
     def render(self, limit: int = 6) -> str:
         """Telegram friendly text block."""
         lines = [

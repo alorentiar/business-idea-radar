@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
+from typing import Any
 
 from . import __version__
 from .radar import DEFAULT_STATE, Radar, RadarError
@@ -44,6 +46,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     scan.add_argument("--json", action="store_true", help="emit JSON")
     scan.add_argument(
+        "--out",
+        metavar="FILE",
+        help="also write a Markdown report to this file (e.g. leads/2026-10-04.md)",
+    )
+    scan.add_argument(
         "--explain", action="store_true", help="show the score breakdown"
     )
     scan.add_argument(
@@ -53,7 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-memory", action="store_true", help="do not record what was shown"
     )
 
-    sub.add_parser("sources", help="probe each source and report health")
+    sources = sub.add_parser("sources", help="probe each source and report health")
+    sources.add_argument("--json", action="store_true", help="emit JSON results")
 
     sub.add_parser("forget", help="clear the memory of previously seen signals")
 
@@ -75,10 +83,14 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
     if args.json:
         print(json.dumps(digest.as_dict(), indent=2))
+        if args.out:
+            _write_report(args.out, digest.render_markdown(limit=args.show))
         return EXIT_OK
 
     if not digest.leads:
         print("no leads above the score threshold right now")
+        if args.out:
+            _write_report(args.out, digest.render_markdown(limit=args.show))
         return EXIT_NOTHING
 
     print(digest.render(limit=args.show))
@@ -89,7 +101,17 @@ def cmd_scan(args: argparse.Namespace) -> int:
             bits = ", ".join(f"{k}={v}" for k, v in sorted(lead.breakdown.items()))
             print(f"  {lead.score:5.1f}  {lead.title[:60]}")
             print(f"         {bits}")
+    if args.out:
+        _write_report(args.out, digest.render_markdown(limit=args.show))
     return EXIT_OK
+
+
+def _write_report(path: str, text: str) -> None:
+    """Write a report file, creating parent directories as needed."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("w", encoding="utf-8") as fh:
+        fh.write(text + "\n")
 
 
 def cmd_sources(args: argparse.Namespace) -> int:
@@ -102,17 +124,31 @@ def cmd_sources(args: argparse.Namespace) -> int:
         ("github_trending", sig.github_trending, "GitHub trending"),
     ]
     healthy = 0
-    for _key, fn, label in probes:
+    results: list[dict[str, Any]] = []
+    for key, fn, label in probes:
+        entry: dict[str, Any] = {"source": key, "label": label, "count": 0, "status": "ok"}
         try:
-            items = fn()
-            count = len(items)
+            count = len(fn())
         except Exception as exc:  # noqa: BLE001 - report, never crash a probe
-            print(f"  {label:20} FAILED ({type(exc).__name__})")
+            entry["status"] = "failed"
+            entry["error"] = type(exc).__name__
+            if not args.json:
+                print(f"  {label:20} FAILED ({type(exc).__name__})")
+            results.append(entry)
             continue
-        state = "ok" if count else "empty"
+        entry["count"] = count
+        entry["status"] = "ok" if count else "empty"
         if count:
             healthy += 1
-        print(f"  {label:20} {state} ({count} signals)")
+        if not args.json:
+            print(f"  {label:20} {entry['status']} ({count} signals)")
+        results.append(entry)
+
+    if args.json:
+        payload = {"healthy": healthy, "total": len(probes), "sources": results}
+        print(json.dumps(payload, indent=2))
+        return EXIT_OK if healthy else EXIT_ERROR
+
     print()
     print(f"{healthy}/{len(probes)} sources returned data")
     return EXIT_OK if healthy else EXIT_ERROR

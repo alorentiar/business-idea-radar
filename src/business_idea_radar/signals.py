@@ -101,8 +101,10 @@ class Signals:
             f"&hitsPerPage={limit}&numericFilters=points>20"
         )
         data = _safe(url, self.timeout)
+        if not isinstance(data, dict):
+            return []
         out: list[Signal] = []
-        for hit in ((data or {}).get("hits") or []):
+        for hit in data.get("hits") or []:
             title = _strip_html(hit.get("title") or "")
             if not title:
                 continue
@@ -128,8 +130,10 @@ class Signals:
         """Things people just built. Traction here hints at a live market."""
         url = f"{HN_SEARCH}?tags=show_hn&hitsPerPage={limit}&numericFilters=points>50"
         data = _safe(url, self.timeout)
+        if not isinstance(data, dict):
+            return []
         out: list[Signal] = []
-        for hit in ((data or {}).get("hits") or []):
+        for hit in data.get("hits") or []:
             title = _strip_html(hit.get("title") or "")
             if not title:
                 continue
@@ -202,8 +206,6 @@ class Signals:
 
     def github_trending(self, days: int = 30, min_stars: int = 200, limit: int = 25) -> list[Signal]:
         """Repositories that gained traction recently. Where attention is going."""
-        since = (datetime.now(timezone.utc)).strftime("%Y-%m-%d")
-        # created after N days ago, plenty of stars already
         from datetime import timedelta
 
         since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
